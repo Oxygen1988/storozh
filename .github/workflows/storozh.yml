@@ -1,0 +1,30 @@
+name: storozh
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "1 = прислать проверочное сообщение"
+        default: "0"
+permissions:
+  contents: write
+concurrency:
+  group: storozh
+  cancel-in-progress: false
+jobs:
+  proverka:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: проверка
+        run: bash proverka.sh
+        env:
+          HOST: ${{ secrets.HOST }}
+          URL: ${{ secrets.URL }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT: ${{ secrets.TG_CHAT }}
+          TEST: ${{ github.event.inputs.test }}
