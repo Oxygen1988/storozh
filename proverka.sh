@@ -27,9 +27,27 @@ tg() {
 }
 
 if [ "${TEST:-}" = "1" ]; then
-  tg "🛡 Сторож VPN подключён. Сейчас: $(proverit). Проверка раз в ~5 мин, пишу только при смене состояния."
+  tg "🛡 Сторож VPN подключён. Сейчас: $(proverit). Торговый сервер (пульс): $(puls_sostoyanie). Проверка раз в ~5 мин, пишу только при смене состояния."
   exit 0
 fi
+
+# --- Торговый сервер: пульс (16-11) ---------------------------------------
+# Сторож риска на торговом сервере раз в 15 мин пушит ветку `pulse`:
+# "<unix-время> paper=ok|bad bary=ok|bad". Старше 45 мин или bad — тревога.
+# Отдельное состояние (sostoyanie_trade.txt), чтобы не путать с VPN.
+TFILE=sostoyanie_trade.txt
+PULS_MAX=$(( 45 * 60 ))
+puls_sostoyanie() {
+  git fetch -q --depth 1 origin pulse 2>/dev/null || { echo "net_vetki"; return; }
+  local ts p b
+  read -r ts p b < <(git show FETCH_HEAD:pulse.txt 2>/dev/null)
+  [[ "${ts:-}" =~ ^[0-9]+$ ]] || { echo "net_vetki"; return; }
+  local vozrast=$(( $(date +%s) - ts ))
+  if [ "$vozrast" -gt "$PULS_MAX" ]; then echo "molchit:$(( vozrast / 60 ))"; return; fi
+  [ "$p" != "paper=ok" ] && { echo "sloy1"; return; }
+  [ "$b" != "bary=ok" ] && { echo "bary"; return; }
+  echo "ok"
+}
 
 # Повторы: тревога, только если плохо во всех попытках подряд.
 sejchas=""
@@ -53,6 +71,23 @@ if [ "${sejchas%%:*}" != "${bylo%%:*}" ]; then
     ok)     tg "🟢 Всё снова работает. Было: $bylo, примерно $dlit мин." ;;
   esac
   echo "$sejchas $seychas_t" > "$FILE"
+  izm=1
+fi
+
+tsejchas=$(puls_sostoyanie)
+echo "торговля (пульс): $tsejchas"
+tbylo="ok"; t_s=$seychas_t
+[ -f "$TFILE" ] && read -r tbylo t_s < "$TFILE"
+if [ "${tsejchas%%:*}" != "${tbylo%%:*}" ]; then
+  tdl=$(( (seychas_t - t_s) / 60 ))
+  case "$tsejchas" in
+    molchit:*) tg "🔴 ТОРГОВЫЙ СЕРВЕР МОЛЧИТ: пульса нет ${tsejchas#molchit:} мин. Сторож риска не работает — проверь сервер и бота." ;;
+    sloy1)     tg "🟠 Торговый сервер жив, но движок слоя 1 (trade-paper) НЕ в порядке." ;;
+    bary)      tg "🟠 Торговый сервер жив, но бары/сборщик НЕ в порядке." ;;
+    net_vetki) tg "🟠 Пульс торгового сервера не читается (нет ветки pulse)." ;;
+    ok)        tg "🟢 Торговый сервер снова шлёт пульс. Было: $tbylo, примерно $tdl мин." ;;
+  esac
+  echo "$tsejchas $seychas_t" > "$TFILE"
   izm=1
 fi
 
